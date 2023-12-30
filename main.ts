@@ -42,7 +42,7 @@ export default class LinkFormatterPlugin extends Plugin {
 		this.opis = this.apis.obsidianAPIs;
 
 		this.addCommand({
-			id: 'redirector-format-links',
+			id: 'link-formatter-format-links',
 			name: 'Format links',
 			callback: () => {
 				this.command_formatLinks();
@@ -82,7 +82,7 @@ export default class LinkFormatterPlugin extends Plugin {
 		if (nextElementContainer.done) return 0;
 		var file: TFile = nextElementContainer.value;
 
-		var links = this.opis.tryGetInternalLinksDistinct(file);
+		var links = this.opis.tryGetInternalNonEmbedLinks(file);
 		if (!links || links.length == 0) {
 			return await this.refreshAllLinks_recurse(mdfilesIterator);
 		}
@@ -113,7 +113,7 @@ export default class LinkFormatterPlugin extends Plugin {
 			if (nextElementContainer.done) break;
 			var file: TFile = nextElementContainer.value;
 	
-			var links = this.opis.tryGetInternalLinksDistinct(file);
+			var links = this.opis.tryGetInternalNonEmbedLinks(file);
 			if (!links || links.length == 0) {
 				continue;
 			}
