@@ -1,0 +1,9 @@
+{
+	"id": "obsidian-link-formatter",
+	"name": "Link Formatter",
+	"version": "0.1.0",
+	"minAppVersion": "1.4.16",
+	"description": "Re-create links according to current setting",
+	"author": "KORC",
+	"isDesktopOnly": true
+}
