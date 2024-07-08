@@ -1,9 +1,9 @@
 {
-	"id": "obsidian-link-formatter",
-	"name": "Link Formatter",
+	"id": "korc-link-util",
+	"name": "KORC Link Util",
 	"version": "0.1.0",
 	"minAppVersion": "1.4.16",
-	"description": "Re-create links according to current setting",
+	"description": "Link related, re-create links according to current setting, ...",
 	"author": "KORC",
 	"isDesktopOnly": true
 }

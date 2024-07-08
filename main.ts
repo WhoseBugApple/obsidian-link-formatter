@@ -1,5 +1,5 @@
 import { Stats, access, link, readFile, rename, stat } from 'fs';
-import { App, CachedMetadata, Editor, EmbedCache, FileManager, FileSystemAdapter, LinkCache, MarkdownView, MetadataCache, Notice, Plugin, TAbstractFile, TFile, TFolder, Vault, Workspace, WorkspaceLeaf, normalizePath } from 'obsidian';
+import { App, CachedMetadata, Editor, EmbedCache, FileManager, FileSystemAdapter, LinkCache, MarkdownView, MetadataCache, Notice, Plugin, TAbstractFile, TFile, TFolder, Vault, Workspace, WorkspaceLeaf, normalizePath, parseLinktext } from 'obsidian';
 import { basename, dirname, extname, join, normalize, parse, sep } from 'path';
 
 // References
@@ -33,7 +33,7 @@ import { basename, dirname, extname, join, normalize, parse, sep } from 'path';
 //   callback
 //     [Workspace class](https://docs.obsidian.md/Reference/TypeScript+API/Workspace)
 
-export default class LinkFormatterPlugin extends Plugin {
+export default class KORCLinkUtilPlugin extends Plugin {
 	apis: SharedAPIs
 	opis: ObsidianAPIs
 
@@ -42,10 +42,18 @@ export default class LinkFormatterPlugin extends Plugin {
 		this.opis = this.apis.obsidianAPIs;
 
 		this.addCommand({
-			id: 'link-formatter-format-links',
+			id: 'format-links',
 			name: 'Format links',
 			callback: () => {
 				this.command_formatLinks();
+			}
+		});
+
+		this.addCommand({
+			id: 'report-links',
+			name: 'Report links',
+			callback: () => {
+				this.command_reportLinks();
 			}
 		});
 	}
@@ -69,40 +77,160 @@ export default class LinkFormatterPlugin extends Plugin {
 		return;
 	}
 
+	// path of obsidian view
+	reportName: string = "korc links report.md";
+	parentOfReport_path: string = "";
+	reportPath: string = this.parentOfReport_path + this.reportName;
+	async command_reportLinks() {
+		// idle
+		await this.idle();
+
+		// delete old report
+		await this.apis.obsidianAPIs.deleteFileIfExist_async(this.reportPath);
+
+		// ill markdown files
+		var illMarkdownFiles: TFile[] = this.getIllMarkdownFiles();
+
+		// report
+		await this.reportLinks(illMarkdownFiles, this.reportPath, this.reportName, this.parentOfReport_path);
+	}
+
+	getIllMarkdownFiles(): TFile[] {
+		var result: TFile[] = [];
+
+		var mds = this.opis.getMarkdownFiles();
+		mds.forEach(file => {
+			var links = this.opis.tryGetInternalLinks(file);
+			if (!links) return;
+			for (var i=0; i<links.length; i++) {
+				var link = links[i];
+				if (this.isTargetNotExist(link, file) || 
+					this.isLinkTextMayNeedUpdate(link, file)
+					) {
+					result.push(file);
+					break;
+				}
+			}
+		});
+
+		return result;
+	}
+
+	isTargetNotExist(link: LinkCache, currentFile: TFile): boolean {
+		var targetOrNot = this.opis.tryGetLinkTarget(link.link, currentFile.path);
+		if (targetOrNot) return false;
+		return true;
+	}
+
+	isLinkTextMayNeedUpdate(link: LinkCache, currentFile: TFile): boolean {
+		var targetOrNot = this.opis.tryGetLinkTarget(link.link, currentFile.path);
+		if (!targetOrNot) return false;
+		var pair = new LinkAndTargetFile(currentFile, link, targetOrNot, this.opis);
+		return pair.isLinkTextNeedUpdate();
+	}
+
+	async reportLinks(
+			markdownFiles: TFile[], 
+			reportFilePath: string, reportName: string, parentOfReport_path: string) {
+		// delete report-file if exist
+		await this.apis.obsidianAPIs.deleteFileIfExist_async(reportFilePath);
+		var emptyReportText: string = '';
+		var reportText: string = this.getReportText(markdownFiles, reportFilePath, emptyReportText);
+		await this.handleReportText_async(reportFilePath, reportText, emptyReportText);
+	}
+
+	getReportText(
+			markdownFiles: TFile[], 
+			reportFilePath: string, emptyReportText: string): string {
+		var reportText: string = emptyReportText;
+		reportText += this.getReportText_targetNotExist(markdownFiles, reportFilePath, emptyReportText);
+		reportText += this.getReportText_textNeedUpdate(markdownFiles, reportFilePath, emptyReportText);
+		return reportText;
+	}
+
+	getReportText_targetNotExist(
+			markdownFiles: TFile[], 
+			reportFilePath: string, emptyReportText: string): string {
+		var reportText: string = emptyReportText;
+
+		var nextIllFileId = 1;
+		markdownFiles.forEach(file => {
+			var reportTextForFile = emptyReportText;
+
+			var links = this.opis.tryGetInternalLinks(file);
+			if (!links) return;
+			links.forEach(link => {
+				if (this.isTargetNotExist(link, file)) {
+					reportTextForFile += `${link.original}\n\n`;
+				}
+			});
+
+			if (reportTextForFile != emptyReportText) {
+				var curIllFileId = nextIllFileId;
+				nextIllFileId++;
+				reportTextForFile = `## ${curIllFileId}\n### file\n${this.opis.generateMarkdownLink(file, reportFilePath)}\n\n### bad links\n` + reportTextForFile;
+				reportText += reportTextForFile;
+			}
+		});
+
+		if (reportText != emptyReportText) {
+			// if any report, add extra-info
+			reportText = '# link-target NOT exist\n' + reportText;
+		}
+		return reportText;
+	}
+
+	getReportText_textNeedUpdate(
+			markdownFiles: TFile[], 
+			reportFilePath: string, emptyReportText: string): string {
+		var reportText: string = emptyReportText;
+
+		var nextIllFileId = 1;
+		markdownFiles.forEach(file => {
+			var reportTextForFile = emptyReportText;
+
+			var links = this.opis.tryGetInternalLinks(file);
+			if (!links) return;
+			links.forEach(link => {
+				if (this.isLinkTextMayNeedUpdate(link, file)) {
+					var targetOrNot = this.opis.tryGetLinkTarget(link.link, file.path);
+					if (!targetOrNot) throw new Error('expect NOT null');
+					var pair = new LinkAndTargetFile(file, link, targetOrNot, this.opis);
+					reportTextForFile += `#### may be bad link\n${link.original}\n\n##### should it be such? \n${pair.getFreshMarkdownLink()}\n\n`;
+				}
+			});
+
+			if (reportTextForFile != emptyReportText) {
+				var curIllFileId = nextIllFileId;
+				nextIllFileId++;
+				reportTextForFile = `## ${curIllFileId}\n### file\n${this.opis.generateMarkdownLink(file, reportFilePath)}\n\n### bad links\n` + reportTextForFile;
+				reportText += reportTextForFile;
+			}
+		});
+
+		if (reportText != emptyReportText) {
+			// if any report, add extra-info
+			reportText = '# link-text may need update\n' + reportText;
+		}
+		return reportText;
+	}
+
+	async handleReportText_async(reportFilePath: string, reportText: string, emptyReportText: string) {
+		if (reportText == emptyReportText) {
+			new Notice("report finished, nothing to report");
+			return;
+		}
+		var reportFile = await this.apis.obsidianAPIs.createFile_async(reportFilePath, reportText);
+		await this.apis.obsidianAPIs.openFile_async(reportFile);
+		new Notice("report finished, see report-file");
+	}
+
 	// regenerate all links
 	// return count of modified file
 	async refreshAllLinks(): Promise<number> {
 		var mdfiles = this.apis.obsidianAPIs.getMarkdownFiles();
 		var mdfilesIterator = mdfiles.values();
 		return await this.refreshAllLinks_loop(mdfilesIterator);
-	}
-
-	async refreshAllLinks_recurse(mdfilesIterator: IterableIterator<TFile>): Promise<number> {
-		var nextElementContainer = mdfilesIterator.next();
-		if (nextElementContainer.done) return 0;
-		var file: TFile = nextElementContainer.value;
-
-		var links = this.opis.tryGetInternalNonEmbedLinks(file);
-		if (!links || links.length == 0) {
-			return await this.refreshAllLinks_recurse(mdfilesIterator);
-		}
-
-		var pairs: LinkAndTargetFile[] = [];
-		links.forEach((link) => {
-			var targetFile = this.opis.tryGetLinkTarget(link.link, file.path);
-			if (!targetFile) return;
-			var pair = new LinkAndTargetFile(file, link, targetFile, this.opis);
-			if (!pair.isLinkTextNeedUpdate()) return;
-			pairs.push(pair);
-		})
-
-		if (pairs.length != 0) {
-			var linksChanged = await this.replaceLinksInFile(pairs, file);
-			var filesChanged = linksChanged >= 1 ? 1 : 0;
-			return await this.refreshAllLinks_recurse(mdfilesIterator) + filesChanged;
-		} else {
-			return await this.refreshAllLinks_recurse(mdfilesIterator);
-		}
 	}
 
 	async refreshAllLinks_loop(mdfilesIterator: IterableIterator<TFile>): Promise<number> {
@@ -113,7 +241,7 @@ export default class LinkFormatterPlugin extends Plugin {
 			if (nextElementContainer.done) break;
 			var file: TFile = nextElementContainer.value;
 	
-			var links = this.opis.tryGetInternalNonEmbedLinks(file);
+			var links = this.opis.tryGetInternalLinks(file);
 			if (!links || links.length == 0) {
 				continue;
 			}
@@ -316,7 +444,42 @@ class LinkAndTargetFile {
 	}
 
 	getFreshMarkdownLink(): string {
-		return this.opis.generateMarkdownLink(this.targetFile, this.currentFile.path);
+		var displayText: string = '';
+		if (this.link.original.startsWith('!')) {
+			// that's a embbed link
+			if (this.link.displayText) {
+				displayText = this.link.displayText;
+			}
+		} else {
+			// that's NOT embbed link
+			var subpathText: string = parseLinktext(this.link.link).subpath;
+			if (subpathText.startsWith('#')) subpathText = subpathText.replace(/^\#/, '');
+			var fileNameText: string = this.opis.getFilePrefixName_ObsidianView(this.targetFile);
+			if (subpathText == '' || fileNameText == '') {
+				if (subpathText == '') {
+					displayText = fileNameText;
+				} else {
+					displayText = subpathText;
+				}
+			} else {
+				displayText = `${subpathText} from ${fileNameText}`;
+			}
+		}
+		var fresh: string = this.opis.generateMarkdownLink(this.targetFile, this.currentFile.path, parseLinktext(this.link.link).subpath, displayText);
+		var subpath = parseLinktext(this.link.link).subpath;
+		if (subpath.startsWith('#')) subpath = subpath.replace(/^\#/, '');
+		if (this.link.original.startsWith('!')) {
+			// that's a embbed link
+			if (!fresh.startsWith('!')) {
+				fresh = '!' + fresh;
+			}
+		} else {
+			// that's NOT embbed link
+			if (fresh.startsWith('!')) {
+				fresh = fresh.replace(/^\!/, '');
+			}
+		}
+		return fresh;
 	}
 
 	isLinkTextNeedUpdate(): boolean {
@@ -860,12 +1023,12 @@ class ObsidianAPIs {
 
 	// at current file, try to get the target of link
 	tryGetLinkTarget(link: string, pathOfCurrentFile: string): TFile | null {
-		return this.getMetadataCache().getFirstLinkpathDest(link, pathOfCurrentFile);
+		return this.getMetadataCache().getFirstLinkpathDest(parseLinktext(link).path, pathOfCurrentFile);
 	}
 
 	// at current file, generate the markdown link of target file
-	generateMarkdownLink(targetFile: TFile, pathOfCurrentFile: string): string {
-		return this.getFileManager().generateMarkdownLink(targetFile, pathOfCurrentFile);
+	generateMarkdownLink(targetFile: TFile, pathOfCurrentFile: string, subpath: string = '', displayText: string = ''): string {
+		return this.getFileManager().generateMarkdownLink(targetFile, pathOfCurrentFile, subpath, displayText);
 	}
 
 	// embed + non-embed links
@@ -884,7 +1047,7 @@ class ObsidianAPIs {
 	// remove duplicate links
 	// if at least 1 link, return links, 
 	// else return null
-	tryGetInternalLinksDistinct(file: TFile): LinkCache[] | null {
+	tryGetInternalLinksDistinctByText(file: TFile): LinkCache[] | null {
 		var links = this.tryGetInternalLinks(file);
 		if (!links) return null;
 		var linksDistinct: LinkCache[] = [];
