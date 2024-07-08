@@ -1,6 +1,9 @@
 # Link Util
 this is a plugin for those who rename `root-dir` to `root-dir-1` then rename `root-dir-1` back to `root-dir`
 
+## READ before use
+**there may be bugs**
+
 ## Report
 ### it will
 create a report-file, tell you sth that worth a check
