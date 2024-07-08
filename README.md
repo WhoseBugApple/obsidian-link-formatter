@@ -5,6 +5,11 @@ this is a plugin for those who rename `root-dir` to `root-dir-1` then rename `ro
 ### it will
 create a report-file, tell you sth that worth a check
 
+till 2024-7-8, it will tell you
+
+- links that target do NOT exist
+- links that text may need a update
+
 ### how to execute
 open the command palette (by default Ctrl+P) , 
 execute `Report links`
