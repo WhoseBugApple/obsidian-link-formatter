@@ -1,8 +1,18 @@
 # Link Util
 this is a plugin for those who rename `root-dir` to `root-dir-1` then rename `root-dir-1` back to `root-dir`
 
+## Report
+### it will
+create a report-file, tell you sth that worth a check
+
+### how to execute
+open the command palette (by default Ctrl+P) , 
+execute `Report links`
+
 ## Re-create links according to current setting
 ### READ before use
+**compare with Report, it's a dangerous way, there may be bugs**
+
 if `Format links` is called
 
 **for non-embedded-links, always updated** (non-embedded-links: sth like `[display-text](path)`)
@@ -11,4 +21,4 @@ if `Format links` is called
 
 ### how to execute
 open the command palette (by default Ctrl+P) , 
-execute `Format links` or `Report links`
+execute `Format links`
